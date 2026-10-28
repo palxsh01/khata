@@ -39,7 +39,9 @@ export function getByID(id: number): Budget | null {
   );
 }
 
-// remaining = budget - my spend + settled money owed to me
+// remaining = budget - my spend + settled shares (+ve came back to me, -ve I paid back)
+//   repayment transactions are left out of "my spend": their splits already carry the amount,
+//   which also keeps netted (+800 / -300) and zero-net settles right
 // pending   = unsettled splits (+ve incoming, -ve I still owe)
 // projected = remaining after all splits clear (press-and-hold)
 export function getByMonth(month: number, year: number): BudgetStatus | null {
@@ -50,10 +52,11 @@ export function getByMonth(month: number, year: number): BudgetStatus | null {
       b.budget
         - COALESCE((SELECT SUM(amount) FROM transactions
           WHERE type = 'expense' AND paid_by = 'me'
+          AND id NOT IN (SELECT source_transaction_id FROM splits WHERE source_transaction_id IS NOT NULL)
           AND created_at >= $start AND created_at < $end), 0)
         + COALESCE((SELECT SUM(s.share_amount) FROM splits s
           JOIN transactions t ON t.id = s.transaction_id
-          WHERE s.settled = 1 AND s.share_amount > 0
+          WHERE s.settled = 1
           AND t.created_at >= $start AND t.created_at < $end), 0)
         AS remaining,
       COALESCE((SELECT SUM(s.share_amount) FROM splits s

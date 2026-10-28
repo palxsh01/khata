@@ -60,6 +60,29 @@ describe('budgetAPI', () => {
     expect(s.pending).toBe(-200);
   });
 
+  it('netted and zero-net settles move remaining by the shares, not the repayment', () => {
+    budgets.create(9, 2026, 10000);
+    const r = people.create('Rahul');
+    const tickets = tx.create({ amount: 3000, splits: [{ person_id: r, share_amount: 1500 }] });
+    const shoes = tx.create({ amount: 1000, paid_by: 'Rahul', splits: [{ person_id: r, share_amount: -1000 }] });
+    at(tickets, '2026-09-05 12:00:00');
+    at(shoes, '2026-09-06 12:00:00');
+    const ids = [tickets, shoes].map((t) => splits.getByTransaction(t)[0].id);
+
+    // Rahul pays the 500 difference: I spent 3000, got 1500 back, owed 1000 for the shoes
+    at(tx.settleSplits(ids), '2026-09-07 12:00:00');
+    expect(budgets.getByMonth(9, 2026)!.remaining).toBe(10000 - 3000 + 1500 - 1000);
+  });
+
+  it('a pure repayment I make counts once', () => {
+    budgets.create(9, 2026, 10000);
+    const r = people.create('Rahul');
+    const cab = tx.create({ amount: 600, paid_by: 'Rahul', splits: [{ person_id: r, share_amount: -300 }] });
+    at(cab, '2026-09-06 12:00:00');
+    at(tx.settleSplits(splits.getByTransaction(cab).map((x) => x.id)), '2026-09-07 12:00:00');
+    expect(budgets.getByMonth(9, 2026)!.remaining).toBe(10000 - 300);
+  });
+
   it('IST month boundary: 23:59 on the 30th stays in September', () => {
     budgets.create(9, 2026, 1000);
     budgets.create(10, 2026, 1000);

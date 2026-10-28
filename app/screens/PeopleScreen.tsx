@@ -70,9 +70,9 @@ export default function PeopleScreen() {
                 left={<Tile id={p.id} text={p.name} />}
                 title={p.name}
                 right={b ? inr(Math.abs(b)) : '—'}
-                rightSub={b > 0 ? 'owes you' : b < 0 ? 'you owe' : 'settled up'}
+                rightSub={b > 0 ? 'owes you' : b < 0 ? 'you owe' : balance.has(p.id) ? 'evens out' : 'settled up'}
                 rightColor={b > 0 ? color.positive : b < 0 ? color.negative : color.textTertiary}
-                onPress={b ? () => setSettling(p) : undefined}
+                onPress={balance.has(p.id) ? () => setSettling(p) : undefined}
                 onLongPress={() => confirmRemove(p)}
               />
             );
@@ -106,7 +106,7 @@ function SettleSheet({ person, onClose, onDone }: { person: Person; onClose: () 
   const splits = useMemo(() => splitsAPI.getUnsettled(person.id), [person.id]);
   const [picked, setPicked] = useState(() => new Set(splits.map((s) => s.id)));
 
-  const net = splits.filter((s) => picked.has(s.id)).reduce((a, s) => a + s.share_amount, 0);
+  const net = Math.round(splits.filter((s) => picked.has(s.id)).reduce((a, s) => a + s.share_amount, 0) * 100) / 100;
   const toggle = (id: number) => {
     const next = new Set(picked);
     if (!next.delete(id)) next.add(id);
@@ -124,9 +124,9 @@ function SettleSheet({ person, onClose, onDone }: { person: Person; onClose: () 
         {splits.map((sp, i) => <PickRow key={sp.id} split={sp} first={i === 0} on={picked.has(sp.id)} onPress={() => toggle(sp.id)} />)}
       </Card>
       <Button
-        label={net > 0 ? `${person.name} paid me ${inr(net)}` : net < 0 ? `I paid ${person.name} ${inr(-net)}` : 'Nothing to settle'}
+        label={net > 0 ? `${person.name} paid me ${inr(net)}` : net < 0 ? `I paid ${person.name} ${inr(-net)}` : picked.size ? 'Evens out, mark settled' : 'Nothing to settle'}
         onPress={settle}
-        disabled={!net}
+        disabled={!picked.size}
       />
     </Sheet>
   );

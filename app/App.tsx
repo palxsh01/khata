@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Alert, Pressable, StatusBar as RNStatusBar, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { seed } from './db/devSeed';
+import AddTransactionSheet from './screens/AddTransactionSheet';
 import AccountsScreen from './screens/AccountsScreen';
 import BudgetScreen from './screens/BudgetScreen';
 import HomeScreen from './screens/HomeScreen';
@@ -22,6 +23,7 @@ export default function App() {
   const [active, setActive] = useState(0);
   // bumping the key remounts the screen, which re-queries the db
   const [version, bump] = useReducer((x: number) => x + 1, 0);
+  const [adding, setAdding] = useState(false);
   const { Screen } = TABS[active];
 
   const resetWithSample = () =>
@@ -48,8 +50,7 @@ export default function App() {
         </Pressable>
       )}
 
-      {/* ponytail: no add-transaction sheet yet, so + does nothing */}
-      <Pressable style={({ pressed }) => [s.fab, pressed && { transform: [{ scale: 0.92 }] }]}>
+      <Pressable onPress={() => setAdding(true)} style={({ pressed }) => [s.fab, pressed && { transform: [{ scale: 0.92 }] }]}>
         <Ionicons name="add" size={28} color={color.bg} />
       </Pressable>
 
@@ -61,6 +62,16 @@ export default function App() {
           </Pressable>
         ))}
       </View>
+
+      {adding && (
+        <AddTransactionSheet
+          onClose={() => setAdding(false)}
+          onSaved={() => {
+            setAdding(false);
+            bump();
+          }}
+        />
+      )}
 
       <StatusBar style="light" />
     </View>

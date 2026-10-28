@@ -64,3 +64,17 @@ export function dayLabel(date: string, today: Date): string {
   if (diff === 1) return 'Yesterday';
   return that.toLocaleDateString('en-IN', { day: 'numeric', month: 'long' });
 }
+
+// what each person owes me when I paid: typed amounts as-is, blanks (null) split
+// the rest equally with me; my share is whatever's left
+export function shares(amount: number, typed: (number | null)[]): number[] {
+  const fixed = typed.reduce<number>((a, t) => a + (t ?? 0), 0);
+  const each = Math.round(((amount - fixed) / (typed.filter((t) => t === null).length + 1)) * 100) / 100;
+  return typed.map((t) => t ?? each);
+}
+
+// local calendar date as 'YYYY-MM-DD' (device clock is assumed IST)
+export function isoDate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}

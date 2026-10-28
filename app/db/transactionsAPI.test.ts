@@ -19,6 +19,11 @@ describe('transactionsAPI', () => {
     expect(created.slice(0, 16)).toBe(ist);
   });
 
+  it('accepts a backdated created_at', () => {
+    const id = tx.create({ amount: 1, created_at: '2026-09-03 12:00:00' });
+    expect(tx.getByID(id)!.created_at).toBe('2026-09-03 12:00:00');
+  });
+
   it('creates splits and sets is_split', () => {
     const p = people.create('Rahul');
     const id = tx.create({ amount: 100, splits: [{ person_id: p, share_amount: 50 }] });
@@ -153,8 +158,21 @@ describe('transactionsAPI', () => {
     it('throws when nothing is left to settle', () => {
       const { owesMe } = setup();
       tx.settleSplits([owesMe]);
-      expect(() => tx.settleSplits([owesMe])).toThrow(/Nothing to settle/);
+      expect(() => tx.settleSplits([owesMe])).toThrow(/already settled/);
       expect(() => tx.settleSplits([])).toThrow(/Nothing to settle/);
+    });
+
+    it('zero net (they bought me something instead) settles with no transaction', () => {
+      const p = people.create('Rahul');
+      const owed = tx.create({ amount: 3000, splits: [{ person_id: p, share_amount: 1500 }] });
+      const gift = tx.create({ amount: 1500, paid_by: 'Rahul', paid_for: 'Shoes', splits: [{ person_id: p, share_amount: -1500 }] });
+      const ids = [owed, gift].map((t) => splits.getByTransaction(t)[0].id);
+      const before = tx.getAll().length;
+
+      expect(tx.settleSplits(ids)).toBe(0);
+      expect(tx.getAll()).toHaveLength(before);
+      expect(splits.getUnsettled(p)).toHaveLength(0);
+      expect(splits.getByID(ids[0])).toMatchObject({ settled: 1, source_transaction_id: null });
     });
   });
 });

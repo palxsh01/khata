@@ -27,6 +27,7 @@ export interface TransactionInput {
   paid_for?: string | null;
   account_id?: number | null;
   type?: TxType;
+  created_at?: string; // IST 'YYYY-MM-DD HH:MM:SS'; defaults to now
   splits?: SplitInput[];
 }
 
@@ -72,15 +73,16 @@ export function create(input: TransactionInput): number {
   db.withTransactionSync(() => {
     id = db.runSync(
       `INSERT INTO transactions 
-      (amount, paid_by, paid_for, account_id, type, is_split)
-      VALUES(?, ?, ?, ?, ?, ?)`,
+      (amount, paid_by, paid_for, account_id, type, is_split, created_at)
+      VALUES(?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now', '+5 hours', '+30 minutes')))`,
       [
         input.amount,
         input.paid_by ?? 'me',
         input.paid_for ?? null,
         input.account_id ?? null,
         input.type ?? 'expense',
-        splits.length ? 1 : 0
+        splits.length ? 1 : 0,
+        input.created_at ?? null
       ]
     ).lastInsertRowId;
 
@@ -145,39 +147,51 @@ export function createSettlement(
         input.type ?? 'income'
       ]
     ).lastInsertRowId;
-    const ph = splitIds.map(() => '?').join(', ');
 
-    const { changes } = db.runSync(
-      `UPDATE splits
-      SET settled = 1, settled_at = datetime('now', '+5 hours', '+30 minutes'), source_transaction_id = ?
-      WHERE id IN (${ph}) AND settled = 0`,
-      [
-        id, 
-        ...splitIds
-      ]
-    );
-
-    // throwing rolls back the insert, so no orphan repayment is left behind
-    if (changes !== splitIds.length) throw new Error('Some splits are missing or already settled');
+    markSettled(id, splitIds);
   });
 
   return id;
 }
 
-// the net of the chosen splits decides direction: +ve they pay me (income), -ve I pay them (expense)
+// sourceId null = the splits cancelled out, so no money moved
+function markSettled(sourceId: number | null, splitIds: number[]): void {
+  const ph = splitIds.map(() => '?').join(', ');
+
+  const { changes } = db.runSync(
+    `UPDATE splits
+    SET settled = 1, settled_at = datetime('now', '+5 hours', '+30 minutes'), source_transaction_id = ?
+    WHERE id IN (${ph}) AND settled = 0`,
+    [
+      sourceId,
+      ...splitIds
+    ]
+  );
+
+  // throwing rolls back the caller's transaction, so no orphan repayment is left behind
+  if (changes !== splitIds.length) throw new Error('Some splits are missing or already settled');
+}
+
+// the net of the chosen splits decides direction: +ve they pay me (income), -ve I pay them (expense),
+// zero = they cancel out (e.g. they bought me something instead of paying back): settled, returns 0
 export function settleSplits(
   splitIds: number[],
   input: Pick<TransactionInput, 'paid_for' | 'account_id'> = {}
 ): number {
+  if (!splitIds.length) throw new Error('Nothing to settle');
+
   const ph = splitIds.map(() => '?').join(', ');
-  const net = db.getFirstSync<{ net: number | null }>(
+  const raw = db.getFirstSync<{ net: number | null }>(
     `SELECT SUM(share_amount) AS net FROM splits
     WHERE id IN (${ph}) AND settled = 0`,
     splitIds
   )?.net ?? 0;
+  const net = Math.round(raw * 100) / 100; // 33.33 + 33.33 - 66.66 must be exactly 0
 
-  // ponytail: a zero net (equal debts both ways) can't be a transaction (amount > 0); add an offset-only settle if it comes up
-  if (!net) throw new Error('Nothing to settle');
+  if (!net) {
+    db.withTransactionSync(() => markSettled(null, splitIds));
+    return 0;
+  }
 
   return createSettlement(
     {

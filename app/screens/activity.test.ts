@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Transaction } from '../db/transactionsAPI';
-import { applyFilters, compact, dailyTotals, dayLabel, groupByDay, inr, pctChange, total } from './activity';
+import { applyFilters, compact, dailyTotals, dayLabel, groupByDay, isoDate, inr, pctChange, shares, total } from './activity';
 
 let id = 0;
 const t = (created_at: string, amount: number, extra: Partial<Transaction> = {}): Transaction => ({
@@ -59,5 +59,16 @@ describe('activity helpers', () => {
     expect(dayLabel('2026-09-25', today)).toBe('Today');
     expect(dayLabel('2026-09-24', today)).toBe('Yesterday');
     expect(dayLabel('2026-09-07', today)).toBe('7 September');
+  });
+
+  it('shares: typed as-is, blanks split the rest with me', () => {
+    expect(shares(900, [null, null])).toEqual([300, 300]);
+    expect(shares(1000, [600, null])).toEqual([600, 200]);
+    expect(shares(100, [null, null])).toEqual([33.33, 33.33]);
+    expect(shares(500, [500])).toEqual([500]);
+  });
+
+  it('isoDate pads', () => {
+    expect(isoDate(new Date(2026, 0, 5))).toBe('2026-01-05');
   });
 });
