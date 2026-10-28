@@ -50,6 +50,23 @@ export function Chip({ label, onPress }: { label: string; onPress: () => void })
   );
 }
 
+type OptionId = string | number | null;
+
+// a row of pills where one or more can be on
+export function Options({ options, isOn, onPress }: {
+  options: { id: OptionId; label: string }[]; isOn: (id: OptionId) => boolean; onPress: (id: OptionId) => void;
+}) {
+  return (
+    <View style={s.options}>
+      {options.map((o) => (
+        <Pressable key={String(o.id)} onPress={() => onPress(o.id)} style={[s.option, isOn(o.id) && s.optionOn]}>
+          <Text style={[s.optionText, isOn(o.id) && s.optionTextOn]}>{o.label}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
 export function Card({ children }: { children: ReactNode }) {
   return <View style={s.card}>{children}</View>;
 }
@@ -187,6 +204,11 @@ export const s = StyleSheet.create({
   chip: { backgroundColor: color.surfaceRaised, borderRadius: radius.full, paddingHorizontal: 16, paddingVertical: 10 },
   chipText: { color: color.textSecondary, fontSize: 13, fontWeight: '500' },
   pressed: { transform: [{ scale: 0.95 }] },
+  options: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  option: { backgroundColor: color.surfaceRaised, borderRadius: radius.full, paddingHorizontal: 16, paddingVertical: 10 },
+  optionOn: { backgroundColor: color.fab },
+  optionText: { color: color.textSecondary, fontSize: 14, fontWeight: '500' },
+  optionTextOn: { color: color.bg },
 
   card: { backgroundColor: color.surface, borderRadius: radius.card, paddingHorizontal: space.card, marginBottom: space.section },
   row: { flexDirection: 'row', alignItems: 'center', minHeight: 64, paddingVertical: 10, gap: 12 },

@@ -6,7 +6,7 @@ import * as peopleAPI from '../db/peopleAPI';
 import * as transactionsAPI from '../db/transactionsAPI';
 import type { SplitInput, TxType } from '../db/transactionsAPI';
 import { color, radius } from '../theme';
-import { Button, Field, Sheet, parseAmount, s as ui } from '../ui';
+import { Button, Field, Options, Sheet, parseAmount, s as ui } from '../ui';
 import { dayLabel, inr, isoDate, shares } from './activity';
 
 export default function AddTransactionSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
@@ -198,28 +198,9 @@ function Calendar({ value, max, onPick }: { value: string; max: string; onPick: 
   );
 }
 
-type Id = string | number | null;
-
-function Options({ options, isOn, onPress }: { options: { id: Id; label: string }[]; isOn: (id: Id) => boolean; onPress: (id: Id) => void }) {
-  return (
-    <View style={s.options}>
-      {options.map((o) => (
-        <Pressable key={String(o.id)} onPress={() => onPress(o.id)} style={[s.option, isOn(o.id) && s.optionOn]}>
-          <Text style={[s.optionText, isOn(o.id) && s.optionTextOn]}>{o.label}</Text>
-        </Pressable>
-      ))}
-    </View>
-  );
-}
-
 const Label = ({ text }: { text: string }) => <Text style={s.label}>{text}</Text>;
 
 const s = StyleSheet.create({
-  options: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  option: { backgroundColor: color.surfaceRaised, borderRadius: radius.full, paddingHorizontal: 16, paddingVertical: 10 },
-  optionOn: { backgroundColor: color.fab },
-  optionText: { color: color.textSecondary, fontSize: 14, fontWeight: '500' },
-  optionTextOn: { color: color.bg },
   label: { color: color.textSecondary, fontSize: 13, marginBottom: 6, marginLeft: 4 },
   note: { color: color.textSecondary, fontSize: 13, textAlign: 'center', marginBottom: 8 },
 

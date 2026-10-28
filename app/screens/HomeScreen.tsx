@@ -5,43 +5,112 @@ import * as accountsAPI from '../db/accountsAPI';
 import * as transactionsAPI from '../db/transactionsAPI';
 import type { Transaction, TxType } from '../db/transactionsAPI';
 import { color, radius, space } from '../theme';
-import { Card, Chip, Empty, Hero, ListRow, Screen } from '../ui';
-import { applyFilters, compact, dailyTotals, dayLabel, dayOf, groupByDay, inr, pctChange, total } from './activity';
+import { Card, Chip, Empty, Hero, ListRow, Options, RoundButton, Screen } from '../ui';
+import {
+  applyFilters, bucketTotals, compact, dayBuckets, dayLabel, dayOf, groupByDay, inr, isoDate, monthBuckets, pctChange,
+  total, weekBuckets, type Bucket
+} from './activity';
 
 const CHART_H = 200;
-const TICKS = [1, 7, 14, 21, 28];
+
+type Range = 'month' | '3m' | '1y' | 'all';
+const RANGES = [
+  { id: 'month', label: 'Month' },
+  { id: '3m', label: '3M' },
+  { id: '1y', label: '1Y' },
+  { id: 'all', label: 'Lifetime' }
+];
 
 export default function HomeScreen() {
   const now = new Date();
-  const month = now.getMonth() + 1;
-  const year = now.getFullYear();
-  const today = now.getDate();
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const [pm, py] = month === 1 ? [12, year - 1] : [month - 1, year];
+  const today = isoDate(now);
+  const cy = now.getFullYear();
+  const cm = now.getMonth() + 1;
+  // [year, month] `back` months before this one
+  const ym = (back: number) => {
+    const d = new Date(cy, cm - 1 - back, 1);
+    return [d.getFullYear(), d.getMonth() + 1] as const;
+  };
+  const monthName = (y: number, m: number) => new Date(y, m - 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 
   const [type, setType] = useState<TxType>('expense');
   const [accountIdx, setAccountIdx] = useState(-1); // -1 = all accounts
+  const [range, setRange] = useState<Range>('month');
+  const [monthBack, setMonthBack] = useState(0); // Month view: 0 = this month
+  const [year, setYear] = useState<number | null>(null); // 1Y view: null = last 12 months
 
-  // ponytail: loaded once on mount; re-query on focus once the add sheet exists
-  const { txs, prevTxs, accounts } = useMemo(() => ({
-    txs: transactionsAPI.getByMonth(month, year),
-    prevTxs: transactionsAPI.getByMonth(pm, py),
-    accounts: accountsAPI.getAll()
-  }), []);
+  // ponytail: every transaction loaded once per mount (App remounts after adds); query per range if this gets slow
+  // getAll(-1): SQLite reads LIMIT -1 as no limit
+  const { all, accounts } = useMemo(() => ({ all: transactionsAPI.getAll(-1), accounts: accountsAPI.getAll() }), []);
+  const [fy, fm] = (all[all.length - 1]?.created_at ?? today).split('-').map(Number);
+
+  let buckets: Bucket[];
+  let end = isoDate(new Date(cy, cm, 1)); // start of next month
+  let phrase: string;
+  if (range === 'month') {
+    const [y, m] = ym(monthBack);
+    buckets = dayBuckets(y, m);
+    end = isoDate(new Date(y, m, 1));
+    phrase = monthBack ? `in ${monthName(y, m)}` : 'this month';
+  } else if (range === '3m') {
+    buckets = weekBuckets(isoDate(new Date(cy, cm - 3, 1)), end);
+    phrase = 'in the last 3 months';
+  } else if (range === '1y' && year !== null) {
+    buckets = monthBuckets(year, 1, 12);
+    end = `${year + 1}-01-01`;
+    phrase = `in ${year}`;
+  } else if (range === '1y') {
+    buckets = monthBuckets(...ym(11), 12);
+    phrase = 'in the last 12 months';
+  } else {
+    buckets = monthBuckets(fy, fm, (cy - fy) * 12 + cm - fm + 1);
+    phrase = `since ${new Date(fy, fm - 1).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}`;
+  }
+  const start = buckets[0].start;
+  const inRange = (t: Transaction) => t.created_at >= start && t.created_at < end;
 
   const accountId = accounts[accountIdx]?.id ?? null;
-  const shown = applyFilters(txs, type, accountId);
+  const shown = applyFilters(all.filter(inRange), type, accountId);
   const sum = total(shown);
-  // compare against the same stretch of last month, not the whole month
-  const prevSum = total(applyFilters(prevTxs, type, accountId).filter((t) => dayOf(t) <= today));
-  const pct = pctChange(sum, prevSum);
+
+  // only Month compares: this month against the same days of the last, past months whole
+  const [py, pm] = ym(monthBack + 1);
+  let pct: number | null = null;
+  if (range === 'month') {
+    const prev = all.filter((t) => t.created_at >= isoDate(new Date(py, pm - 1, 1)) && t.created_at < start);
+    const cutoff = monthBack ? 31 : now.getDate();
+    pct = pctChange(sum, total(applyFilters(prev, type, accountId).filter((t) => dayOf(t) <= cutoff)));
+  }
   const good = pct !== null && (type === 'expense' ? pct <= 0 : pct >= 0);
   const prevName = new Date(py, pm - 1).toLocaleDateString('en-IN', { month: 'short' });
 
+  const years = Array.from({ length: cy - fy + 1 }, (_, i) => cy - i);
+
   return (
     <Screen>
+      <View style={s.rangeRow}>
+        <Options options={RANGES} isOn={(id) => id === range} onPress={(id) => setRange(id as Range)} />
+      </View>
+
+      {range === 'month' && (
+        <View style={s.monthNav}>
+          <RoundButton icon="chevron-back" onPress={() => setMonthBack(monthBack + 1)} />
+          <Text style={s.monthText}>{monthName(...ym(monthBack))}</Text>
+          {monthBack ? <RoundButton icon="chevron-forward" onPress={() => setMonthBack(monthBack - 1)} /> : <View style={s.navSpacer} />}
+        </View>
+      )}
+      {range === '1y' && (
+        <View style={s.rangeRow}>
+          <Options
+            options={[{ id: null, label: 'Last 12 months' }, ...years.map((y) => ({ id: y, label: String(y) }))]}
+            isOn={(id) => id === year}
+            onPress={(id) => setYear(id as number | null)}
+          />
+        </View>
+      )}
+
       <Hero
-        label={type === 'expense' ? 'Spent this month' : 'Earned this month'}
+        label={`${type === 'expense' ? 'Spent' : 'Earned'} ${phrase}`}
         value={inr(sum, 0)}
         sub={pct !== null && (
           <View style={s.delta}>
@@ -57,7 +126,7 @@ export default function HomeScreen() {
         )}
       />
 
-      <DailyBars totals={dailyTotals(shown, daysInMonth)} today={today} />
+      <Bars totals={bucketTotals(shown, buckets)} buckets={buckets} upTo={buckets.filter((b) => b.start <= today).length} />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}>
         <Chip
@@ -82,15 +151,17 @@ export default function HomeScreen() {
         </View>
       ))}
 
-      {!shown.length && <Empty text={type === 'expense' ? 'No expenses this month' : 'No income this month'} />}
+      {!shown.length && <Empty text={`No ${type === 'expense' ? 'expenses' : 'income'} ${phrase}`} />}
     </Screen>
   );
 }
 
-function DailyBars({ totals, today }: { totals: number[]; today: number }) {
+// bars after `upTo` haven't happened yet and are drawn as ghosts
+function Bars({ totals, buckets, upTo }: { totals: number[]; buckets: Bucket[]; upTo: number }) {
   const max = Math.max(...totals, 1);
-  const avg = totals.slice(0, today).reduce((a, b) => a + b, 0) / today;
+  const avg = totals.slice(0, upTo).reduce((a, b) => a + b, 0) / Math.max(upTo, 1);
   const avgY = (avg / max) * CHART_H;
+  const width = totals.length > 16 ? 5 : 12;
 
   return (
     <View style={s.chart}>
@@ -101,7 +172,8 @@ function DailyBars({ totals, today }: { totals: number[]; today: number }) {
               <View
                 style={[
                   s.bar,
-                  i + 1 > today
+                  { width },
+                  i >= upTo
                     ? { height: CHART_H, backgroundColor: color.track, opacity: 0.35 }
                     : { height: Math.max((v / max) * CHART_H, 2), backgroundColor: v ? color.text : color.track }
                 ]}
@@ -123,9 +195,9 @@ function DailyBars({ totals, today }: { totals: number[]; today: number }) {
         </View>
       </View>
       <View style={s.ticks}>
-        {totals.map((_, i) => (
-          <View key={i} style={s.barSlot}>
-            {(TICKS.includes(i + 1) || i + 1 === totals.length) && <Text style={s.tickText}>{i + 1}</Text>}
+        {buckets.map((b) => (
+          <View key={b.start} style={s.barSlot}>
+            {b.label !== '' && <Text style={s.tickText} numberOfLines={1}>{b.label}</Text>}
           </View>
         ))}
         <View style={s.axis} />
@@ -151,6 +223,11 @@ function Row({ tx, first }: { tx: Transaction; first: boolean }) {
 }
 
 const s = StyleSheet.create({
+  rangeRow: { alignItems: 'center' },
+  monthNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  monthText: { color: color.text, fontSize: 16, fontWeight: '600' },
+  navSpacer: { width: 48 },
+
   delta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   deltaText: { fontSize: 14 },
 
@@ -158,13 +235,13 @@ const s = StyleSheet.create({
   chartRow: { flexDirection: 'row', height: CHART_H },
   bars: { flex: 1, flexDirection: 'row', alignItems: 'flex-end' },
   barSlot: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
-  bar: { width: 5, borderRadius: radius.full },
+  bar: { borderRadius: radius.full },
   avgLine: { position: 'absolute', left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between' },
   dash: { width: 3, height: 1, backgroundColor: color.textSecondary },
   axis: { width: 36 },
   axisText: { position: 'absolute', right: 0, color: color.textTertiary, fontSize: 12 },
   ticks: { flexDirection: 'row', marginTop: 8 },
-  tickText: { width: 24, textAlign: 'center', color: color.textTertiary, fontSize: 12 },
+  tickText: { width: 40, textAlign: 'center', color: color.textTertiary, fontSize: 12 },
 
   chips: { gap: 8, marginBottom: space.section },
 

@@ -49,6 +49,8 @@ describe('transactionsAPI', () => {
     const c = tx.create({ amount: 3 });
     expect(tx.getAll().map((t) => t.id)).toEqual([c, b, a]);
     expect(tx.getAll(1, 1).map((t) => t.id)).toEqual([b]);
+    for (let i = 0; i < 60; i++) tx.create({ amount: 1 });
+    expect(tx.getAll(-1)).toHaveLength(63); // -1 = no limit (Activity relies on it)
   });
 
   it('getByMonth returns only that IST month, newest first', () => {

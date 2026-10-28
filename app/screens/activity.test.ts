@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Transaction } from '../db/transactionsAPI';
-import { applyFilters, compact, dailyTotals, dayLabel, groupByDay, isoDate, inr, pctChange, shares, total } from './activity';
+import { applyFilters, bucketTotals, compact, dayBuckets, dayLabel, groupByDay, isoDate, inr, monthBuckets, pctChange, shares, total, weekBuckets } from './activity';
 
 let id = 0;
 const t = (created_at: string, amount: number, extra: Partial<Transaction> = {}): Transaction => ({
@@ -26,11 +26,33 @@ describe('activity helpers', () => {
   });
 
   it('daily totals land on the right day', () => {
-    const days = dailyTotals(applyFilters(txs, 'expense', null), 30);
+    const days = bucketTotals(applyFilters(txs, 'expense', null), dayBuckets(2026, 9));
     expect(days).toHaveLength(30);
     expect(days[24]).toBe(100);
     expect(days[23]).toBe(50);
     expect(days.reduce((a, b) => a + b)).toBe(150);
+  });
+
+  it('day buckets tick 1, 7, 14, 21, 28 and the last day', () => {
+    const b = dayBuckets(2026, 2);
+    expect(b).toHaveLength(28);
+    expect(b.filter((x) => x.label).map((x) => x.label)).toEqual(['1', '7', '14', '21', '28']);
+  });
+
+  it('week buckets step 7 days, stop at end and name each new month', () => {
+    const b = weekBuckets('2026-08-01', '2026-11-01');
+    expect(b).toHaveLength(14);
+    expect(b[1].start).toBe('2026-08-08');
+    expect(b[b.length - 1].start).toBe('2026-10-31');
+    expect(b.filter((x) => x.label).map((x) => x.start)).toEqual(['2026-08-01', '2026-09-05', '2026-10-03']);
+  });
+
+  it('month buckets cross years; monthly totals', () => {
+    const b = monthBuckets(2025, 11, 12);
+    expect([b[0].start, b[2].start, b[11].start]).toEqual(['2025-11-01', '2026-01-01', '2026-10-01']);
+    expect(monthBuckets(2024, 6, 30).filter((x) => x.label).map((x) => x.label)).toEqual(['2024', '2025', '2026']);
+    const totals = bucketTotals(applyFilters(txs, 'expense', null), monthBuckets(2026, 8, 3));
+    expect(totals).toEqual([0, 150, 0]);
   });
 
   it('groups by day, newest first, with my total per day', () => {
